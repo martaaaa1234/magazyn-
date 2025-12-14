@@ -180,3 +180,132 @@ else:
     st.info("Magazyn jest pusty.")
 
 st.markdown(f"**Liczba unikalnych towarów:** `{len(towary_magazynu)}`")
+import streamlit as st
+
+# --- Definicja Stanu Magazynu (Bez sesji/pliku, więc resetuje się) ---
+
+# Lista towarów, które FAKTYCZNIE są w magazynie
+towary_magazynu = ["Laptop Dell", "Monitor LG", "Klawiatura Mechaniczna"]
+
+# Lista towarów, które POWINNY być w magazynie (Stan docelowy/standardowy)
+stan_magazynu_docelowy = {
+    "Laptop Dell", 
+    "Monitor LG", 
+    "Myszka Logitech", # <-- Ten towar jest zdefiniowany jako docelowy, ale nie ma go w 'towary_magazynu'
+    "Klawiatura Mechaniczna",
+    "Podkładka Gamingowa" # <-- Ten też jest zdefiniowany jako docelowy
+}
+
+# --- Funkcje operacyjne ---
+
+def dodaj_towar(nazwa_towaru):
+    """Dodaje towar do listy i zwraca status operacji."""
+    if nazwa_towaru and nazwa_towaru not in towary_magazynu:
+        towary_magazynu.append(nazwa_towaru)
+        return True, f"Dodano towar: **{nazwa_towaru}**"
+    elif nazwa_towaru in towary_magazynu:
+        return False, f"Towar **{nazwa_towaru}** jest już w magazynie."
+    else:
+        return False, "Wpisz nazwę towaru do dodania."
+
+def usun_towar(nazwa_towaru):
+    """Usuwa towar z listy i zwraca status operacji."""
+    if nazwa_towaru in towary_magazynu:
+        towary_magazynu.remove(nazwa_towaru)
+        return True, f"Usunięto towar: **{nazwa_towaru}**"
+    else:
+        return False, f"Nie znaleziono towaru **{nazwa_towaru}** w magazynie."
+
+def sprawdz_braki_magazynowe():
+    """Porównuje stan docelowy z faktycznym i zwraca listę braków."""
+    # Konwertujemy listę aktualnych towarów na zbiór (set) dla szybszego porównania
+    aktualny_stan_set = set(towary_magazynu)
+    
+    # Odejmowanie zbiorów: docelowy - aktualny = braki
+    braki = stan_magazynu_docelowy.difference(aktualny_stan_set)
+    
+    # Sortujemy dla ładniejszego wyświetlania
+    return sorted(list(braki))
+
+# --- Interfejs Streamlit ---
+
+st.set_page_config(page_title="Prosty Magazyn", layout="centered")
+
+st.title("📦 Prosty Magazyn (Streamlit)")
+st.caption("⚠️ **Uwaga:** Dane w tym magazynie **nie są zapisywane** (resetują się do stanu początkowego).")
+
+# --- 4. Sekcja Analizy Braków Magazynowych (NOWOŚĆ) ---
+braki_magazynowe = sprawdz_braki_magazynowe()
+
+st.header("🚨 Braki Magazynowe")
+
+if braki_magazynowe:
+    st.error(f"Wykryto **{len(braki_magazynowe)}** braków zgodnie ze stanem docelowym:")
+    
+    # Wyświetlanie braków jako nieuporządkowanej listy
+    braki_lista = "\n".join([f"- **{brak}**" for brak in braki_magazynowe])
+    st.markdown(braki_lista)
+    
+    # Opcjonalnie: Przycisk, który automatycznie dodaje brakujący towar do formularza dodawania
+    if st.button("Uzupełnij pierwszy brak: " + braki_magazynowe[0]):
+        # W Streamlit to działa głównie jako informacja, 
+        # bo musielibyśmy użyć session_state do faktycznej pre-populacji inputa.
+        # Bez session_state, to jest tylko demonstracja intencji.
+        st.info(f"Teraz możesz dodać **{braki_magazynowe[0]}** w sekcji 'Dodaj Towar'.")
+else:
+    st.success("Brak braków! Magazyn jest zgodny ze stanem docelowym.")
+
+st.divider()
+
+# --- 1. Sekcja dodawania towaru ---
+st.header("➕ Dodaj Towar")
+with st.form("dodaj_formularz", clear_on_submit=True):
+    nowy_towar = st.text_input("Nazwa Towaru", key="input_dodaj")
+    submitted_add = st.form_submit_button("Dodaj do Magazynu")
+    
+    if submitted_add:
+        sukces, komunikat = dodaj_towar(nowy_towar.strip())
+        if sukces:
+            st.success(komunikat)
+            st.toast(komunikat, icon="✅")
+        else:
+            if "jest już w magazynie" in komunikat:
+                 st.warning(komunikat)
+            else:
+                 st.error(komunikat)
+
+# --- 2. Sekcja usuwania towaru ---
+st.header("➖ Usuń Towar")
+with st.form("usun_formularz", clear_on_submit=False): 
+    # Używamy selectbox, aby wybrać z listy aktualnie w pamięci
+    towar_do_usuniecia = st.selectbox(
+        "Wybierz towar do usunięcia",
+        options=towary_magazynu,
+        key="select_usun"
+    )
+    submitted_delete = st.form_submit_button("Usuń z Magazynu")
+
+    if submitted_delete:
+        sukces, komunikat = usun_towar(towar_do_usuniecia)
+        if sukces:
+            st.success(komunikat)
+            st.toast(komunikat, icon="🗑️")
+        else:
+            st.error(komunikat)
+
+st.divider()
+
+# --- 3. Aktualny stan magazynu ---
+st.header("📋 Stan Magazynu Rzeczywisty")
+
+if towary_magazynu:
+    st.dataframe(
+        {"ID": list(range(1, len(towary_magazynu) + 1)), "Nazwa Towaru": towary_magazynu},
+        hide_index=True,
+        use_container_width=True
+    )
+else:
+    st.info("Magazyn jest pusty.")
+
+st.markdown(f"**Liczba unikalnych towarów (Rzeczywisty):** `{len(towary_magazynu)}`")
+st.markdown(f"**Liczba unikalnych towarów (Docelowy):** `{len(stan_magazynu_docelowy)}`")
