@@ -2,97 +2,77 @@ import streamlit as st
 from supabase import create_client
 import pandas as pd
 
-# Inicjalizacja połączenia z Supabase
+# Bezpieczne pobieranie kluczy
+if "SUPABASE_URL" not in st.secrets or "SUPABASE_KEY" not in st.secrets:
+    st.error("Błąd: Brak kluczy konfiguracyjnych w Secrets!")
+    st.stop()
+
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 
 @st.cache_resource
-def get_supabase():
+def init_connection():
     return create_client(url, key)
 
-supabase = get_supabase()
+supabase = init_connection()
 
-st.set_page_config(page_title="Magazyn Supabase", layout="wide")
-st.title("📦 System Zarządzania Magazynem")
+st.title("📦 Manager Magazynu")
 
 # --- ZAKŁADKI ---
-tab_stock, tab_cats, tab_prods = st.tabs(["📊 Stan Magazynowy", "📂 Kategorie", "🍎 Dodaj/Usuń"])
+tab1, tab2, tab3 = st.tabs(["📊 Stan", "➕ Dodaj", "🗑️ Usuń"])
 
-# --- TAB 1: STAN MAGAZYNOWY ---
-with tab_stock:
-    st.header("Aktualny Stan Magazynowy")
-    # Pobieranie danych z joinem do kategorii
-    response = supabase.table("produkty").select("id, nazwa, liczba, cena, kategorie(nazwa)").execute()
-    
-    if response.data:
-        df = pd.json_normalize(response.data)
-        df.columns = ['ID', 'Nazwa Produktu', 'Liczba', 'Cena', 'Kategoria']
+# 1. STAN MAGAZYNOWY (Zgodnie ze schematem: produkty + kategorie)
+with tab1:
+    st.header("Aktualne zapasy")
+    # Pobieramy produkty i nazwę kategorii przez relację kategoria_id
+    res = supabase.table("produkty").select("id, nazwa, liczba, cena, kategorie(nazwa)").execute()
+    if res.data:
+        df = pd.json_normalize(res.data)
         st.dataframe(df, use_container_width=True)
     else:
-        st.info("Magazyn jest pusty.")
+        st.write("Brak produktów.")
 
-# --- TAB 2: ZARZĄDZANIE KATEGORIAMI ---
-with tab_cats:
-    st.header("Kategorie")
+# 2. DODAWANIE (Produkty i Kategorie)
+with tab2:
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("Nowa Kategoria")
         with st.form("cat_form"):
-            c_name = st.text_input("Nazwa")
-            c_desc = st.text_area("Opis")
-            if st.form_submit_button("Dodaj"):
-                supabase.table("kategorie").insert({"nazwa": c_name, "opis": c_desc}).execute()
-                st.success("Dodano kategorię!")
+            n_kat = st.text_input("Nazwa kategorii")
+            o_kat = st.text_input("Opis")
+            if st.form_submit_button("Dodaj kategorię"):
+                supabase.table("kategorie").insert({"nazwa": n_kat, "opis": o_kat}).execute()
+                st.success("Dodano!")
                 st.rerun()
 
     with col2:
-        st.subheader("Usuń Kategorię")
-        res_c = supabase.table("kategorie").select("id, nazwa").execute()
-        if res_c.data:
-            df_c = pd.DataFrame(res_c.data)
-            st.dataframe(df_c, use_container_width=True)
-            id_to_del = st.number_input("Wpisz ID do usunięcia", min_value=1, key="del_cat_id")
-            if st.button("Usuń"):
-                supabase.table("kategorie").delete().eq("id", id_to_del).execute()
-                st.rerun()
-
-# --- TAB 3: DODAWANIE/USUWANIE PRODUKTÓW ---
-with tab_prods:
-    st.header("Zarządzanie Produktami")
-    
-    # Pobranie kategorii do listy rozwijanej
-    cats_data = supabase.table("kategorie").select("id, nazwa").execute()
-    
-    if cats_data.data:
-        col3, col4 = st.columns(2)
-        with col3:
-            st.subheader("Nowy Produkt")
+        st.subheader("Nowy Produkt")
+        cats = supabase.table("kategorie").select("id, nazwa").execute()
+        if cats.data:
+            cat_dict = {c['nazwa']: c['id'] for c in cats.data}
             with st.form("prod_form"):
-                p_name = st.text_input("Nazwa produktu")
-                p_count = st.number_input("Ilość", min_value=0, step=1)
-                p_price = st.number_input("Cena", min_value=0.0)
-                
-                cat_map = {c['nazwa']: c['id'] for c in cats_data.data}
-                p_cat = st.selectbox("Kategoria", options=list(cat_map.keys()))
-                
+                p_nazwa = st.text_input("Nazwa produktu")
+                p_liczba = st.number_input("Ilość", min_value=0)
+                p_cena = st.number_input("Cena", min_value=0.0)
+                p_kat = st.selectbox("Kategoria", options=list(cat_dict.keys()))
                 if st.form_submit_button("Dodaj produkt"):
-                    new_prod = {
-                        "nazwa": p_name,
-                        "liczba": p_count,
-                        "cena": p_price,
-                        "kategoria_id": cat_map[p_cat]
-                    }
-                    supabase.table("produkty").insert(new_prod).execute()
+                    supabase.table("produkty").insert({
+                        "nazwa": p_nazwa, 
+                        "liczba": p_liczba, 
+                        "cena": p_cena, 
+                        "kategoria_id": cat_dict[p_kat]
+                    }).execute()
                     st.success("Produkt dodany!")
                     st.rerun()
-        
-        with col4:
-            st.subheader("Usuń Produkt")
-            prod_id_del = st.number_input("ID produktu do usunięcia", min_value=1)
-            if st.button("Usuń produkt"):
-                supabase.table("produkty").delete().eq("id", prod_id_del).execute()
-                st.rerun()
-    else:
-        st.warning("Najpierw dodaj przynajmniej jedną kategorię!")
 
+# 3. USUWANIE
+with tab3:
+    st.subheader("Usuń element")
+    del_type = st.radio("Co chcesz usunąć?", ["Produkt", "Kategoria"])
+    id_to_del = st.number_input("ID do usunięcia", min_value=1)
+    if st.button("Potwierdź usunięcie"):
+        table = "produkty" if del_type == "Produkt" else "kategorie"
+        supabase.table(table).delete().eq("id", id_to_del).execute()
+        st.warning(f"Usunięto z tabeli {table}")
+        st.rerun()
