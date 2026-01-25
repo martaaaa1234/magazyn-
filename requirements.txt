@@ -1,1 +1,3 @@
-Streamlit
+streamlit
+supabase
+pandas
